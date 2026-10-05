@@ -1,1 +1,1 @@
-- Do not commit anything except when explicitly told to do so
+- Do not commit or push anything except when explicitly told to do so
