@@ -44,6 +44,7 @@
   "build": {
     "appId": "com.mapdisplay.app",
     "productName": "Map Display",
+    "afterPack": "scripts/patch-icon.cjs",
     "directories": {
       "output": "release"
     },
@@ -52,6 +53,7 @@
       "dist-electron/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis",
         "portable"

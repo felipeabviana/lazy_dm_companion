@@ -46,6 +46,7 @@
   "build": {
     "appId": "com.tabletop.dmcompanion",
     "productName": "DM Tabletop Companion",
+    "afterPack": "scripts/patch-icon.cjs",
     "directories": {
       "output": "release"
     },
@@ -54,6 +55,7 @@
       "dist-electron/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis",
         "portable"

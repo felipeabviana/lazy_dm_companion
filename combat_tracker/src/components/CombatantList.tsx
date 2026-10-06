@@ -52,7 +52,7 @@ export const CombatantList: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-3 pb-8">
-      {encounter.combatants.map((combatant, idx) => {
+      {encounter.combatants.map((combatant) => {
         const isActive = combatant.id === encounter.activeCombatantId;
         return (
           <div
