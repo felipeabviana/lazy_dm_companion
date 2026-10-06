@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ImagePlus, Monitor, Eraser, Brush, PaintBucket, Settings, X } from 'lucide-react';
-import type { MapState } from './types/map';
+import type { MapState, MapEntryMeta, MapPan } from './types/map';
 import type { BrushMode } from './types/electron';
+import { MapLibraryPanel } from './components/MapLibraryPanel';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
@@ -58,6 +59,14 @@ export const App: React.FC = () => {
   const [gridSize, setGridSize] = useState('1');
   // Player's View configuration modal visibility
   const [showPlayerConfig, setShowPlayerConfig] = useState(false);
+
+  // ─── Map library (persisted on disk) ────────────────────────────────────────
+  const [maps, setMaps] = useState<MapEntryMeta[]>([]);
+  const [currentMapId, setCurrentMapId] = useState<string | null>(null);
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  // Suppresses fog reset + auto-save while we're programmatically restoring a
+  // saved map, so a restore can't immediately wipe what it just loaded
+  const restoringRef = useRef(false);
 
   const imgRef = useRef<HTMLImageElement>(null);
   const fogCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -119,6 +128,9 @@ export const App: React.FC = () => {
     }
     // Sync to player view: full snapshot (no reset, the image is unchanged)
     window.electronAPI?.sendFogSync(canvas.toDataURL());
+    // Persist the new mask for the current map. Declared below, but only invoked
+    // from an event handler long after this callback has been created.
+    fogPersistRef.current?.();
   }, [fillFog, getFogCtx]);
 
   // ─── Viewport frame (what the player window currently shows) ─────────────────
@@ -172,11 +184,167 @@ export const App: React.FC = () => {
   // ─── Image selection ────────────────────────────────────────────────────────
 
   const handleSelectImage = useCallback(async () => {
-    const dataUrl = await window.electronAPI?.openImage();
-    if (dataUrl) {
-      setImageUrl(dataUrl);
+    const result = await window.electronAPI?.openImage();
+    if (!result) return;
+
+    // Reload the whole list so extra files chosen in the same dialog also appear
+    const snapshot = await window.electronAPI?.loadLibrary();
+    if (snapshot) setMaps(snapshot.maps);
+    if (snapshot?.settings.currentMapId) {
+      setCurrentMapId(snapshot.settings.currentMapId);
+      window.electronAPI?.saveLibrarySettings({ currentMapId: snapshot.settings.currentMapId });
+    }
+
+    // Freshly imported maps start fully fogged, so no fog restore is needed
+    restoringRef.current = false;
+    setImageUrl(result.dataUrl);
+    setZoom(result.entry.zoom);
+  }, []);
+
+  // ─── Library persistence ────────────────────────────────────────────────────
+
+  // Load the library on mount and restore the last-used map with its fog + view
+  const bootstrappedRef = useRef(false);
+  useEffect(() => {
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+    let cancelled = false;
+
+    (async () => {
+      const snapshot = await window.electronAPI?.loadLibrary();
+      if (cancelled || !snapshot) {
+        setLibraryLoading(false);
+        return;
+      }
+      setMaps(snapshot.maps);
+      setPlayerViewDiagonal(snapshot.settings.playerViewDiagonal);
+      setGridSize(snapshot.settings.gridSize);
+
+      const targetId = snapshot.settings.currentMapId;
+      if (targetId && snapshot.maps.some((m) => m.id === targetId)) {
+        setCurrentMapId(targetId);
+        restoringRef.current = true;
+        const [img, fog] = await Promise.all([
+          window.electronAPI?.loadLibraryImage(targetId),
+          window.electronAPI?.loadLibraryFog(targetId),
+        ]);
+        if (cancelled) return;
+        pendingRestoreRef.current = {
+          zoom: snapshot.maps.find((m) => m.id === targetId)?.zoom ?? 1,
+          pan: snapshot.maps.find((m) => m.id === targetId)?.pan ?? { x: 0, y: 0 },
+          fog: fog ?? null,
+        };
+        if (img) setImageUrl(img);
+      }
+      setLibraryLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // View state (zoom/pan) of the loaded map, restored on image load
+  const pendingRestoreRef = useRef<{ zoom: number; pan: MapPan; fog: string | null } | null>(null);
+
+  // Debounced save of zoom + pan for the current map
+  const saveTimerRef = useRef<number | null>(null);
+  const persistViewState = useCallback(() => {
+    if (!currentMapId || restoringRef.current) return;
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      window.electronAPI?.saveLibraryViewState(currentMapId, zoom, panRef.current ?? { x: 0, y: 0 });
+      saveTimerRef.current = null;
+    }, 400);
+  }, [currentMapId, zoom]);
+
+  // Persist zoom/pan whenever they settle
+  useEffect(() => {
+    persistViewState();
+  }, [persistViewState]);
+
+  // Save the current map id whenever it changes
+  useEffect(() => {
+    if (!currentMapId) return;
+    window.electronAPI?.saveLibrarySettings({ currentMapId });
+  }, [currentMapId]);
+
+  // Save the player view / grid settings (debounced)
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      window.electronAPI?.saveLibrarySettings({
+        playerViewDiagonal,
+        gridSize,
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [playerViewDiagonal, gridSize]);
+
+  /** Switch to another map: load its image, fog, zoom and pan. */
+  const handleSelectMap = useCallback(async (id: string) => {
+    if (id === currentMapId) return;
+    const meta = maps.find((m) => m.id === id);
+    if (!meta) return;
+
+    // Flush any pending view state for the map we're leaving
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      window.electronAPI?.saveLibraryViewState(currentMapId!, zoom, panRef.current ?? { x: 0, y: 0 });
+    }
+
+    const [img, fog] = await Promise.all([
+      window.electronAPI?.loadLibraryImage(id),
+      window.electronAPI?.loadLibraryFog(id),
+    ]);
+    if (!img) return;
+
+    restoringRef.current = true;
+    setCurrentMapId(id);
+    pendingRestoreRef.current = { zoom: meta.zoom, pan: meta.pan, fog: fog ?? null };
+    setImageUrl(img);
+    setZoom(meta.zoom);
+  }, [maps, currentMapId, zoom]);
+
+  const handleRenameMap = useCallback(async (id: string, name: string) => {
+    const ok = await window.electronAPI?.renameLibraryMap(id, name);
+    if (ok) {
+      const snapshot = await window.electronAPI?.loadLibrary();
+      if (snapshot) setMaps(snapshot.maps);
     }
   }, []);
+
+  const handleRemoveMap = useCallback(async (id: string) => {
+    const meta = maps.find((m) => m.id === id);
+    const label = meta ? `"${meta.name}"` : 'this map';
+    if (!window.confirm(`Remove ${label} from the library? Its saved fog and view will be deleted.`)) {
+      return;
+    }
+    const ok = await window.electronAPI?.removeLibraryMap(id);
+    if (!ok) return;
+
+    const snapshot = await window.electronAPI?.loadLibrary();
+    if (snapshot) setMaps(snapshot.maps);
+
+    // If the removed map was loaded, fall back to the next available map
+    if (id === currentMapId) {
+      const next = snapshot?.maps[0];
+      if (next) {
+        restoringRef.current = true;
+        setCurrentMapId(next.id);
+        const [img, fog] = await Promise.all([
+          window.electronAPI?.loadLibraryImage(next.id),
+          window.electronAPI?.loadLibraryFog(next.id),
+        ]);
+        pendingRestoreRef.current = { zoom: next.zoom, pan: next.pan, fog: fog ?? null };
+        if (img) setImageUrl(img);
+      } else {
+        setCurrentMapId(null);
+        setImageUrl(null);
+        window.electronAPI?.sendFogReset();
+      }
+    }
+  }, [maps, currentMapId]);
 
   // Compute the displayed size so the image fits the main viewport (no upscale)
   const updateDisplaySize = useCallback((natW: number, natH: number) => {
@@ -207,12 +375,59 @@ export const App: React.FC = () => {
 
   const handleImageLoad = useCallback(() => {
     const img = imgRef.current;
+    const canvas = fogCanvasRef.current;
     if (img && img.naturalWidth) {
       updateDisplaySize(img.naturalWidth, img.naturalHeight);
     }
+
+    const restore = pendingRestoreRef.current;
+    pendingRestoreRef.current = null;
+
+    if (canvas && img && restore) {
+      // Size the canvas to this image, then re-apply the saved fog mask on top
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = getFogCtx();
+      if (ctx) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      if (restore.fog) {
+        const mask = new Image();
+        mask.onload = () => {
+          const ctx2 = getFogCtx();
+          if (ctx2) {
+            ctx2.globalCompositeOperation = 'source-over';
+            ctx2.drawImage(mask, 0, 0);
+          }
+          // Push the restored fog to the player view
+          window.electronAPI?.sendFogReset();
+          if (canvas) window.electronAPI?.sendFogSync(canvas.toDataURL());
+          restoringRef.current = false;
+        };
+        mask.onerror = () => {
+          // Saved fog unreadable - start from a fully fogged map instead
+          resetFog();
+          restoringRef.current = false;
+        };
+        mask.src = restore.fog;
+      } else {
+        // No saved fog for this map: cover it completely
+        fillFog();
+        window.electronAPI?.sendFogReset();
+        window.electronAPI?.sendFogSync(canvas.toDataURL());
+        restoringRef.current = false;
+      }
+      // Restore the saved pan for this map
+      panRef.current = restore.pan;
+      setPan(restore.pan);
+      window.electronAPI?.sendViewportPan(restore.pan.x, restore.pan.y);
+      return;
+    }
+
     resetFog();
     updatePan(panRef.current);
-  }, [resetFog, updatePan, updateDisplaySize]);
+  }, [resetFog, updatePan, updateDisplaySize, getFogCtx, fillFog]);
 
   // ─── Fog painting ───────────────────────────────────────────────────────────
 
@@ -288,6 +503,27 @@ export const App: React.FC = () => {
     [toImageCoords, paintSegment],
   );
 
+  // Persist the fog mask for the current map (debounced), then push a full
+  // snapshot so the player view is guaranteed in sync
+  const fogSaveTimerRef = useRef<number | null>(null);
+  // Indirection so earlier callbacks (fillAllFog) can trigger a save without
+  // depending on this hook's declaration order
+  const fogPersistRef = useRef<(() => void) | null>(null);
+  const persistFog = useCallback(() => {
+    if (!currentMapId || restoringRef.current) return;
+    const canvas = fogCanvasRef.current;
+    if (!canvas) return;
+    if (fogSaveTimerRef.current !== null) window.clearTimeout(fogSaveTimerRef.current);
+    fogSaveTimerRef.current = window.setTimeout(() => {
+      if (restoringRef.current) return;
+      window.electronAPI?.saveLibraryFog(currentMapId, canvas.toDataURL());
+      fogSaveTimerRef.current = null;
+    }, 500);
+  }, [currentMapId]);
+
+  // Keep the indirection pointing at the latest persistFog
+  fogPersistRef.current = persistFog;
+
   const stopPainting = useCallback(() => {
     if (!paintingRef.current) return;
     paintingRef.current = false;
@@ -297,7 +533,8 @@ export const App: React.FC = () => {
     if (canvas) {
       window.electronAPI?.sendFogSync(canvas.toDataURL());
     }
-  }, []);
+    persistFog();
+  }, [persistFog]);
 
   // Mouse wheel adjusts the brush size while a fog brush is selected.
   // Uses a native non-passive listener: React delegates `wheel` to the root as a
@@ -419,13 +656,7 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={handleSelectImage}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-zinc-950 transition-colors"
-          >
-            <ImagePlus className="w-3.5 h-3.5" />
-            Select Image
-          </button>
+          {/* Adding images lives in the left panel's "Add" button */}
           <button
             onClick={handleOpenView}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-zinc-800 dark:bg-zinc-700 hover:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-100 transition-colors"
@@ -445,6 +676,20 @@ export const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Content row: library panel + (controls, viewport) */}
+      <div className="flex-1 flex min-h-0">
+        <MapLibraryPanel
+          maps={maps}
+          currentMapId={currentMapId}
+          onSelect={handleSelectMap}
+          onAdd={handleSelectImage}
+          onRename={handleRenameMap}
+          onRemove={handleRemoveMap}
+          onRevealFolder={() => window.electronAPI?.revealLibraryFolder()}
+          loading={libraryLoading}
+        />
+
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Zoom + Brush Controls */}
       <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md px-4 sm:px-6 py-2 flex items-center justify-center gap-4 z-20 flex-wrap">
         <div className="flex items-center gap-2">
@@ -644,10 +889,12 @@ export const App: React.FC = () => {
           <div className="flex flex-col items-center gap-3 text-zinc-400 dark:text-zinc-600">
             <ImagePlus className="w-12 h-12" />
             <p className="text-sm font-medium">No image selected</p>
-            <p className="text-xs">Click "Select Image" to choose a map image from disk</p>
+            <p className="text-xs">Click "Add" in the Maps panel to choose a map image</p>
           </div>
         )}
       </main>
+        </div>
+      </div>
 
       {/* Player's View Configuration Modal */}
       {showPlayerConfig && (

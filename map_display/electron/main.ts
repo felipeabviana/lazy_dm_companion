@@ -1,8 +1,10 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import * as library from './library.js';
+import type { LibrarySettings, MapPan } from '../src/types/map';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -199,28 +201,68 @@ ipcMain.handle('window:isFullScreen', async (event) => {
 
 // ─── IPC: File dialogs ────────────────────────────────────────────────────────
 
+// Import copies the file into the on-disk library AND returns the data URL, so
+// adding a map is a single round trip.
 ipcMain.handle('dialog:openImage', async () => {
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     title: 'Select Map Image',
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] },
     ],
   });
 
-  if (!result.canceled && result.filePaths.length > 0) {
-    try {
-      const data = await fs.readFile(result.filePaths[0]);
-      const ext = path.extname(result.filePaths[0]).slice(1).toLowerCase();
-      const mime = ext === 'jpg' ? 'jpeg' : ext;
-      return `data:image/${mime};base64,${data.toString('base64')}`;
-    } catch (err) {
-      console.error('Failed to read image file:', err);
-      return null;
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  try {
+    const added: NonNullable<Awaited<ReturnType<typeof library.addImage>>>[] = [];
+    for (const filePath of result.filePaths) {
+      const entry = await library.addImage(filePath);
+      if (entry) added.push(entry);
     }
+    if (added.length === 0) return null;
+    // Multiple files selected: return the first, the rest land in the library
+    return added[0];
+  } catch (err) {
+    console.error('Failed to import image:', err);
+    return null;
   }
-  return null;
+});
+
+// ─── IPC: Map library (on-disk) ───────────────────────────────────────────────
+
+ipcMain.handle('library:load', async () => library.loadSnapshot());
+
+ipcMain.handle('library:loadImage', async (_e, id: string) => library.loadImageDataUrl(id));
+
+ipcMain.handle('library:loadThumb', async (_e, id: string) => library.loadThumbDataUrl(id));
+
+ipcMain.handle('library:loadFog', async (_e, id: string) => library.loadFogDataUrl(id));
+
+ipcMain.handle('library:saveFog', async (_e, id: string, dataUrl: string) => library.saveFog(id, dataUrl));
+
+ipcMain.handle('library:saveViewState', async (_e, id: string, zoom: number, pan: MapPan) =>
+  library.saveMapViewState(id, zoom, pan),
+);
+
+ipcMain.handle('library:rename', async (_e, id: string, name: string) => library.renameMap(id, name));
+
+ipcMain.handle('library:remove', async (_e, id: string) => library.deleteMap(id));
+
+ipcMain.handle('library:saveSettings', async (_e, patch: Partial<LibrarySettings>) =>
+  library.saveSettings(patch),
+);
+
+ipcMain.handle('library:revealFolder', async () => {
+  try {
+    await fs.mkdir(path.join(app.getPath('userData'), 'library'), { recursive: true });
+    shell.openPath(path.join(app.getPath('userData'), 'library'));
+    return true;
+  } catch (err) {
+    console.error('Failed to reveal library folder:', err);
+    return false;
+  }
 });
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────

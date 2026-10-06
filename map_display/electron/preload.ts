@@ -1,8 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { MapState } from '../src/types/map';
+import type {
+  AddImageResult,
+  LibrarySettings,
+  LibrarySnapshot,
+  MapPan,
+  MapState,
+} from '../src/types/map';
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  openImage: (): Promise<string | null> => {
+  // Opens the file dialog, copies the chosen image(s) into the on-disk library,
+  // and returns the first import (with data URL + thumbnail). Additional files
+  // selected at the same time are added to the library but not returned.
+  openImage: (): Promise<AddImageResult | null> => {
     return ipcRenderer.invoke('dialog:openImage');
   },
   createViewOnly: (): Promise<boolean> => {
@@ -82,6 +91,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_e: Electron.IpcRendererEvent, x: number, y: number) => callback(x, y);
     ipcRenderer.on('viewport:pan', handler);
     return () => ipcRenderer.removeListener('viewport:pan', handler);
+  },
+
+  // ─── Map library (on disk, under userData) ──────────────────────────────────
+
+  loadLibrary: (): Promise<LibrarySnapshot> => {
+    return ipcRenderer.invoke('library:load');
+  },
+  loadLibraryImage: (id: string): Promise<string | null> => {
+    return ipcRenderer.invoke('library:loadImage', id);
+  },
+  loadLibraryThumb: (id: string): Promise<string | null> => {
+    return ipcRenderer.invoke('library:loadThumb', id);
+  },
+  loadLibraryFog: (id: string): Promise<string | null> => {
+    return ipcRenderer.invoke('library:loadFog', id);
+  },
+  saveLibraryFog: (id: string, dataUrl: string): Promise<boolean> => {
+    return ipcRenderer.invoke('library:saveFog', id, dataUrl);
+  },
+  saveLibraryViewState: (id: string, zoom: number, pan: MapPan): Promise<boolean> => {
+    return ipcRenderer.invoke('library:saveViewState', id, zoom, pan);
+  },
+  renameLibraryMap: (id: string, name: string): Promise<boolean> => {
+    return ipcRenderer.invoke('library:rename', id, name);
+  },
+  removeLibraryMap: (id: string): Promise<boolean> => {
+    return ipcRenderer.invoke('library:remove', id);
+  },
+  saveLibrarySettings: (patch: Partial<LibrarySettings>): Promise<boolean> => {
+    return ipcRenderer.invoke('library:saveSettings', patch);
+  },
+  revealLibraryFolder: (): Promise<boolean> => {
+    return ipcRenderer.invoke('library:revealFolder');
   },
 
   // ─── Full screen ───────────────────────────────────────────────────────────
