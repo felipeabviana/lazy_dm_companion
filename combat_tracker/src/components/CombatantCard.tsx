@@ -33,9 +33,13 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(combatant.name);
   const [editingHp, setEditingHp] = useState(false);
-  const [hpValue, setHpValue] = useState(String(combatant.currentHp));
+  const [hpValue, setHpValue] = useState(combatant.maxHp > 0 ? String(combatant.currentHp) : '');
   const [editingMaxHp, setEditingMaxHp] = useState(false);
-  const [maxHpValue, setMaxHpValue] = useState(String(combatant.maxHp));
+  const [maxHpValue, setMaxHpValue] = useState(combatant.maxHp > 0 ? String(combatant.maxHp) : '');
+
+  // maxHp of 0 means "HP not set yet": show "-" and hide the bar/stappers rather
+  // than pretending the creature has a pool of 1.
+  const hasKnownHp = combatant.maxHp > 0;
 
   useEffect(() => {
     setInitValue(String(combatant.initiative));
@@ -46,15 +50,15 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
   }, [combatant.name]);
 
   useEffect(() => {
-    setHpValue(String(combatant.currentHp));
-  }, [combatant.currentHp]);
+    setHpValue(hasKnownHp ? String(combatant.currentHp) : '');
+  }, [combatant.currentHp, hasKnownHp]);
 
   useEffect(() => {
-    setMaxHpValue(String(combatant.maxHp));
-  }, [combatant.maxHp]);
+    setMaxHpValue(hasKnownHp ? String(combatant.maxHp) : '');
+  }, [combatant.maxHp, hasKnownHp]);
 
   // HP percentage calculation
-  const hpPercent = combatant.maxHp > 0
+  const hpPercent = hasKnownHp
     ? Math.max(0, Math.min(100, Math.round((combatant.currentHp / combatant.maxHp) * 100)))
     : 0;
 
@@ -66,7 +70,8 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
     return 'bg-emerald-500';
   };
 
-  const isDeadOrUnconscious = combatant.currentHp <= 0;
+  // Unknown HP must not read as "Down", otherwise every fresh combatant looks dead.
+  const isDeadOrUnconscious = hasKnownHp && combatant.currentHp <= 0;
 
   return (
     <div
@@ -224,25 +229,38 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
                   onFocus={(e) => e.target.select()}
                   onBlur={() => {
                     const trimmed = hpValue.trim();
-                    if (trimmed.startsWith('+') || trimmed.startsWith('-')) {
-                      const delta = parseInt(trimmed, 10);
-                      if (!isNaN(delta)) {
-                        const newHp = Math.max(0, Math.min(combatant.maxHp, combatant.currentHp + delta));
+                    if (trimmed === '') {
+                      setEditingHp(false);
+                      return;
+                    }
+                    const parsed = parseInt(trimmed, 10);
+                    if (isNaN(parsed)) {
+                      setEditingHp(false);
+                      return;
+                    }
+                    if (hasKnownHp) {
+                      if (trimmed.startsWith('+') || trimmed.startsWith('-')) {
+                        const newHp = Math.max(
+                          0,
+                          Math.min(combatant.maxHp, combatant.currentHp + parsed)
+                        );
                         updateCombatant(combatant.id, { currentHp: newHp });
-                      }
-                    } else {
-                      const val = parseInt(trimmed, 10);
-                      if (!isNaN(val)) {
-                        const clamped = Math.max(0, Math.min(combatant.maxHp, val));
+                      } else {
+                        const clamped = Math.max(0, Math.min(combatant.maxHp, parsed));
                         updateCombatant(combatant.id, { currentHp: clamped });
                       }
+                    } else {
+                      // HP was unknown ("-"); adopt the typed value as the pool so
+                      // the number is actually visible instead of hidden behind "-".
+                      const adopted = Math.max(0, parsed);
+                      updateCombatant(combatant.id, { currentHp: adopted, maxHp: adopted });
                     }
                     setEditingHp(false);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     if (e.key === 'Escape') {
-                      setHpValue(String(combatant.currentHp));
+                      setHpValue(hasKnownHp ? String(combatant.currentHp) : '');
                       setEditingHp(false);
                     }
                   }}
@@ -251,22 +269,28 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
                 />
               ) : (
                 <span
-                  className="text-xs font-black text-zinc-900 dark:text-zinc-100 shrink-0 cursor-pointer hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                  title="Click to set HP"
+                  className={`text-xs font-black shrink-0 cursor-pointer transition-colors ${
+                    hasKnownHp
+                      ? 'text-zinc-900 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-amber-400'
+                      : 'text-zinc-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-amber-400'
+                  }`}
+                  title={hasKnownHp ? 'Click to set HP' : 'Click to set HP'}
                   onClick={() => {
-                    setHpValue(String(combatant.currentHp));
+                    setHpValue(hasKnownHp ? String(combatant.currentHp) : '');
                     setEditingHp(true);
                   }}
                 >
-                  {combatant.currentHp}
+                  {hasKnownHp ? combatant.currentHp : '-'}
                 </span>
               )}
-              <div className="flex-1 bg-zinc-200 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-300 ${getHealthColor()}`}
-                  style={{ width: `${hpPercent}%` }}
-                />
-              </div>
+              {hasKnownHp && (
+                <div className="flex-1 bg-zinc-200 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${getHealthColor()}`}
+                    style={{ width: `${hpPercent}%` }}
+                  />
+                </div>
+              )}
               {editingMaxHp ? (
                 <input
                   type="number"
@@ -277,17 +301,21 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
                   onBlur={() => {
                     const val = parseInt(maxHpValue, 10);
                     if (!isNaN(val) && val > 0) {
-                      updateCombatant(combatant.id, { maxHp: val });
-                      if (combatant.currentHp > val) {
-                        updateCombatant(combatant.id, { currentHp: val });
+                      // One update call, not two: setting a max on a "-"
+                      // combatant also seeds the current pool, otherwise it would
+                      // read 0/max and appear Down.
+                      const updates: Partial<Combatant> = { maxHp: val };
+                      if (!hasKnownHp || combatant.currentHp > val) {
+                        updates.currentHp = val;
                       }
+                      updateCombatant(combatant.id, updates);
                     }
                     setEditingMaxHp(false);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     if (e.key === 'Escape') {
-                      setMaxHpValue(String(combatant.maxHp));
+                      setMaxHpValue(hasKnownHp ? String(combatant.maxHp) : '');
                       setEditingMaxHp(false);
                     }
                   }}
@@ -296,46 +324,53 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
                 />
               ) : (
                 <span
-                  className="text-[10px] font-normal text-zinc-400 dark:text-zinc-500 shrink-0 cursor-pointer hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
+                  className={`text-[10px] font-normal shrink-0 cursor-pointer transition-colors ${
+                    hasKnownHp
+                      ? 'text-zinc-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-amber-400'
+                      : 'text-zinc-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-amber-400 underline decoration-dotted underline-offset-2'
+                  }`}
                   title="Click to set max HP"
                   onClick={() => {
-                    setMaxHpValue(String(combatant.maxHp));
+                    setMaxHpValue(hasKnownHp ? String(combatant.maxHp) : '');
                     setEditingMaxHp(true);
                   }}
                 >
-                  /{combatant.maxHp}
+                  {hasKnownHp ? `/${combatant.maxHp}` : '-'}
                 </span>
               )}
-              <div className="flex items-center gap-0.5 shrink-0">
-                <button
-                  onClick={() => adjustHp(combatant.id, -5)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-[10px] font-bold transition-all active:scale-95"
-                  title="Subtract 5 HP"
-                >
-                  -5
-                </button>
-                <button
-                  onClick={() => adjustHp(combatant.id, -1)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 transition-all active:scale-95"
-                  title="Subtract 1 HP"
-                >
-                  <Minus className="w-2.5 h-2.5" />
-                </button>
-                <button
-                  onClick={() => adjustHp(combatant.id, 1)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 transition-all active:scale-95"
-                  title="Add 1 HP"
-                >
-                  <Plus className="w-2.5 h-2.5" />
-                </button>
-                <button
-                  onClick={() => adjustHp(combatant.id, 5)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-[10px] font-bold transition-all active:scale-95"
-                  title="Add 5 HP"
-                >
-                  +5
-                </button>
-              </div>
+              {/* Steppers need a known ceiling, so they stay hidden while HP is "-" */}
+              {hasKnownHp && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={() => adjustHp(combatant.id, -5)}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-[10px] font-bold transition-all active:scale-95"
+                    title="Subtract 5 HP"
+                  >
+                    -5
+                  </button>
+                  <button
+                    onClick={() => adjustHp(combatant.id, -1)}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 transition-all active:scale-95"
+                    title="Subtract 1 HP"
+                  >
+                    <Minus className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    onClick={() => adjustHp(combatant.id, 1)}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 transition-all active:scale-95"
+                    title="Add 1 HP"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    onClick={() => adjustHp(combatant.id, 5)}
+                    className="w-5 h-5 flex items-center justify-center rounded bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-[10px] font-bold transition-all active:scale-95"
+                    title="Add 5 HP"
+                  >
+                    +5
+                  </button>
+                </div>
+              )}
             </div>
 
             {combatant.notes && (

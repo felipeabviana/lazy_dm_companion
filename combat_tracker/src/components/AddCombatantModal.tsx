@@ -30,11 +30,16 @@ export const AddCombatantModal: React.FC = () => {
     const parsedCurrentHp = parseInt(currentHp, 10);
     const parsedInitiative = parseInt(initiative, 10);
 
+    // An empty Max HP means the pool size is unknown, not 1. Store 0 so the
+    // card renders "-" with no HP bar until the DM sets a real value.
+    const maxHpValue = isNaN(parsedMaxHp) ? 0 : parsedMaxHp;
+    const currentHpValue = isNaN(parsedCurrentHp) ? maxHpValue : parsedCurrentHp;
+
     const baseCombatant = {
       name: name.trim(),
       initiative: isNaN(parsedInitiative) ? 0 : parsedInitiative,
-      currentHp: isNaN(parsedCurrentHp) ? (isNaN(parsedMaxHp) ? 1 : parsedMaxHp) : parsedCurrentHp,
-      maxHp: isNaN(parsedMaxHp) ? 1 : parsedMaxHp,
+      currentHp: currentHpValue,
+      maxHp: maxHpValue,
       isNpc,
       customCounters: [],
       conditions: [],
@@ -106,6 +111,53 @@ export const AddCombatantModal: React.FC = () => {
             </div>
           </div>
 
+          {/* Initiative & HP Row */}
+          <div className="grid grid-cols-3 gap-3">
+            {/* Initiative */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
+                Initiative
+              </label>
+              <input
+                type="number"
+                placeholder="—"
+                value={initiative}
+                onChange={(e) => setInitiative(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
+              />
+            </div>
+
+            {/* Max HP */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
+                Max HP
+              </label>
+              <input
+                type="number"
+                placeholder="—"
+                value={maxHp}
+                onChange={(e) => setMaxHp(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
+              />
+            </div>
+
+            {/* Current HP */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
+                Current HP
+              </label>
+              <input
+                type="number"
+                disabled={maxHp.trim() === ''}
+                placeholder="—"
+                value={currentHp}
+                onChange={(e) => setCurrentHp(e.target.value)}
+                title={maxHp.trim() === '' ? 'Enter a Max HP first' : undefined}
+                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center disabled:opacity-40 disabled:cursor-not-allowed"
+              />
+            </div>
+          </div>
+
           {/* Ally vs Enemy Toggle */}
           <div className="flex bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-2xl border border-zinc-200 dark:border-zinc-700/60">
             <button
@@ -132,51 +184,6 @@ export const AddCombatantModal: React.FC = () => {
               <Skull className="w-3.5 h-3.5 text-rose-500" />
               <span>Enemy</span>
             </button>
-          </div>
-
-          {/* Initiative & HP Row */}
-          <div className="grid grid-cols-3 gap-3">
-            {/* Initiative */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-                Initiative
-              </label>
-              <input
-                type="number"
-                placeholder="—"
-                value={initiative}
-                onChange={(e) => setInitiative(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
-              />
-            </div>
-
-            {/* Current HP */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-                Current HP
-              </label>
-              <input
-                type="number"
-                placeholder="—"
-                value={currentHp}
-                onChange={(e) => setCurrentHp(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
-              />
-            </div>
-
-            {/* Max HP */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-                Max HP
-              </label>
-              <input
-                type="number"
-                placeholder="—"
-                value={maxHp}
-                onChange={(e) => setMaxHp(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
-              />
-            </div>
           </div>
 
           {/* Submit Button */}

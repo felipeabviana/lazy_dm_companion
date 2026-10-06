@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCombat } from '../context/CombatContext';
+import { KeyboardShortcutsInfo } from './KeyboardShortcutsInfo';
 
 import { ChevronLeft, ChevronRight, UserPlus, ArrowUpDown, RotateCcw, BookOpen, Sun, Moon, Edit2, Check, ShieldAlert, Plus, AlertTriangle, Eye } from 'lucide-react';
 
@@ -102,6 +103,8 @@ export const Header: React.FC = () => {
           <Plus className="w-3.5 h-3.5" />
           <span className="whitespace-nowrap">New Encounter</span>
         </button>
+
+        <KeyboardShortcutsInfo />
       </div>
 
       {/* Center: Turn Navigation & Round Counter */}

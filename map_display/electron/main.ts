@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,14 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist');
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST;
 
+// In dev the app runs from node_modules/electron's electron.exe, whose embedded
+// icon is the Electron logo - the packaged icon (scripts/patch-icon.cjs) only
+// touches the built exe. Point BrowserWindow at build/icon.ico so dev matches
+// production. In a packaged app this resolves inside app.asar, where the icon
+// isn't shipped, so leave it unset and let the exe icon apply.
+const unpackedIcon = path.join(process.env.APP_ROOT, 'build', 'icon.ico');
+const windowIcon = !app.isPackaged && existsSync(unpackedIcon) ? unpackedIcon : undefined;
+
 let win: BrowserWindow | null = null;
 const viewWindows: Set<BrowserWindow> = new Set();
 
@@ -34,6 +43,7 @@ function createWindow() {
     width: 1200,
     height: 850,
     minWidth: 860,
+    icon: windowIcon,
     minHeight: 620,
     backgroundColor: '#09090b',
     webPreferences: {
@@ -62,6 +72,7 @@ ipcMain.handle('window:createViewOnly', async () => {
     width: 1024,
     height: 768,
     minWidth: 480,
+    icon: windowIcon,
     minHeight: 360,
     backgroundColor: '#09090b',
     webPreferences: {
