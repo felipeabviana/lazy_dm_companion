@@ -56,7 +56,7 @@ export const Header: React.FC = () => {
           </div>
           <div>
             <span className="text-xs uppercase tracking-wider font-semibold text-zinc-600 dark:text-zinc-300">
-              DM Companion
+              Combat Tracker
             </span>
             {isEditingTitle ? (
               <form onSubmit={handleTitleSubmit} className="flex items-center gap-1.5 mt-0.5">
@@ -220,7 +220,7 @@ export const Header: React.FC = () => {
           title="Open view‑only window"
         >
           <Eye className="w-4 h-4" />
-          <span className="hidden md:inline whitespace-nowrap">Player's view</span>
+          <span className="hidden md:inline whitespace-nowrap">Player View</span>
         </button>
       </div>
 

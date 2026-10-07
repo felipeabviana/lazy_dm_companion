@@ -3,6 +3,17 @@ export interface CustomCounter {
   name: string;
   value: number;
   max?: number;
+  /**
+   * Optional periodic replenishment: every N rounds this combatant's turn comes
+   * around, `replenishAmount` is added back to `value` (capped at `max` when
+   * one is set). Counted from `replenishNextRound`, which is stamped when the
+   * counter is created or its settings are edited.
+   */
+  replenishEveryRounds?: number;
+  /** How much to add back on each replenishment. Positive; defaults to 1. */
+  replenishAmount?: number;
+  /** The round on which the next replenishment fires (inclusive). */
+  replenishNextRound?: number;
 }
 
 export interface Condition {

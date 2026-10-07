@@ -32,7 +32,7 @@ interface CombatContextType {
 
 
   // Custom Counters
-  addCustomCounter: (combatantId: string, counter: Omit<CustomCounter, 'id'>) => void;
+  addCustomCounter: (combatantId: string, counter: Omit<CustomCounter, 'id' | 'replenishNextRound'>) => void;
   adjustCustomCounter: (combatantId: string, counterId: string, delta: number) => void;
   removeCustomCounter: (combatantId: string, counterId: string) => void;
 
@@ -206,6 +206,42 @@ export const CombatProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const updatedCombatants = prev.combatants.map((c) => {
         if (c.id !== nextCombatant.id) return c;
+
+        // Periodic counter replenishment: fires when the combatant's turn
+        // begins on (or past) the scheduled round. Catch-up handles an app that
+        // was closed across several cycles - each missed one still applies, so
+        // the value lands where it would have if the DM had been present.
+        const withReplenishedCounters = c.customCounters.reduce((counters, cnt) => {
+          const every = cnt.replenishEveryRounds;
+          // Counters with no schedule still have to be carried over, otherwise
+          // they'd be dropped from the list entirely
+          if (!every || every < 1) return [...counters, cnt];
+          let next = cnt.replenishNextRound;
+          // Counters saved before this feature have no schedule; anchor them to
+          // the current round so they don't fire retroactively on first use
+          if (next === undefined) next = nextRound;
+
+          if (nextRound < next) return [...counters, cnt];
+
+          const amount = cnt.replenishAmount && cnt.replenishAmount > 0 ? cnt.replenishAmount : 1;
+          let value = cnt.value + amount;
+          if (cnt.max !== undefined) value = Math.min(cnt.max, value);
+          value = Math.max(0, value);
+
+          logEntries.push(
+            `Round ${nextRound}: ${c.name}'s "${cnt.name}" replenished +${amount} (${cnt.value} → ${value}).`
+          );
+
+          // Advance the schedule past this round, preserving any leftover
+          // remainder rather than drifting the phase
+          const missed = nextRound - next;
+          const advanced = next + every * (Math.floor(missed / every) + 1);
+
+          return [...counters, { ...cnt, value, replenishNextRound: advanced }];
+          // Seed with [] — seeding with c.customCounters would append to the
+          // existing list and duplicate every entry
+        }, [] as CustomCounter[]);
+
         // Decrement round-duration conditions on combatant's turn start
         const remainingConditions: Condition[] = [];
         c.conditions.forEach(cond => {
@@ -220,7 +256,7 @@ export const CombatProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             remainingConditions.push(cond);
           }
         });
-        return { ...c, conditions: remainingConditions };
+        return { ...c, conditions: remainingConditions, customCounters: withReplenishedCounters };
       });
 
       return {
@@ -425,20 +461,30 @@ export const CombatProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   // Custom Counters
-  const addCustomCounter = (combatantId: string, counter: Omit<CustomCounter, 'id'>) => {
-    const newCounter: CustomCounter = {
-      ...counter,
-      id: 'cnt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    };
+  const addCustomCounter = (
+    combatantId: string,
+    counter: Omit<CustomCounter, 'id' | 'replenishNextRound'>,
+  ) => {
+    setEncounter(prev => {
+      // Stamp the first replenishment relative to the current round so it fires
+      // after a full cycle rather than immediately
+      const every = counter.replenishEveryRounds;
+      const newCounter: CustomCounter = {
+        ...counter,
+        id: 'cnt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        replenishNextRound: every && every >= 1 ? prev.round + every : undefined,
+      };
 
-    setEncounter(prev => ({
-      ...prev,
-      combatants: prev.combatants.map(c => {
-        if (c.id !== combatantId) return c;
-        return { ...c, customCounters: [...c.customCounters, newCounter] };
-      }),
-      updatedAt: new Date().toISOString(),
-    }));
+      return {
+        ...prev,
+        combatants: prev.combatants.map(c => {
+          if (c.id !== combatantId) return c;
+          return { ...c, customCounters: [...c.customCounters, newCounter] };
+        }),
+        historyLog: [...prev.historyLog, `Counter "${newCounter.name}" added to ${prev.combatants.find(c => c.id === combatantId)?.name}.`],
+        updatedAt: new Date().toISOString(),
+      };
+    });
   };
 
   const adjustCustomCounter = (combatantId: string, counterId: string, delta: number) => {

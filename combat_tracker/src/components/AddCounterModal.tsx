@@ -19,8 +19,20 @@ export const AddCounterModal: React.FC = () => {
   const [name, setName] = useState('');
   const [value, setValue] = useState<number>(3);
   const [max, setMax] = useState<number | undefined>(3);
+  // Optional periodic replenishment. Kept as strings so a blank field means
+  // "off" rather than 0, and so the input isn't fought while being typed.
+  const [replenishEvery, setReplenishEvery] = useState('');
+  const [replenishAmount, setReplenishAmount] = useState('1');
 
   if (activeModal !== 'add_counter' || !modalTarget) return null;
+
+  const everyTrimmed = replenishEvery.trim();
+  const amountTrimmed = replenishAmount.trim();
+  const everyValue = everyTrimmed === '' ? undefined : parseInt(everyTrimmed, 10);
+  const amountValue = amountTrimmed === '' ? 1 : parseInt(amountTrimmed, 10);
+  // Replenishment only makes sense with a positive interval
+  const replenishValid = everyValue !== undefined && !isNaN(everyValue) && everyValue >= 1
+    && !isNaN(amountValue) && amountValue >= 1;
 
   const handleSelectQuick = (counter: { name: string; max?: number }) => {
     setName(counter.name);
@@ -36,9 +48,14 @@ export const AddCounterModal: React.FC = () => {
       name: name.trim(),
       value,
       max: max !== undefined ? Math.max(value, max) : undefined,
+      ...(replenishValid
+        ? { replenishEveryRounds: everyValue, replenishAmount: amountValue }
+        : {}),
     });
     closeModal();
     setName('');
+    setReplenishEvery('');
+    setReplenishAmount('1');
   };
 
   return (
@@ -122,6 +139,49 @@ export const AddCounterModal: React.FC = () => {
                 className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
               />
             </div>
+          </div>
+
+          {/* Optional periodic replenishment */}
+          <div className="bg-zinc-50 dark:bg-zinc-950/50 p-3 rounded-2xl border border-zinc-100 dark:border-zinc-800/60">
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-2">
+              Auto-Replenish (Optional)
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1">
+                  Replenish every (rounds)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={replenishEvery}
+                  placeholder="Never"
+                  onChange={(e) => setReplenishEvery(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={replenishAmount}
+                  placeholder="1"
+                  disabled={replenishEvery.trim() === ''}
+                  onChange={(e) => setReplenishAmount(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold text-center disabled:opacity-40 disabled:cursor-not-allowed"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1.5 leading-relaxed">
+              {replenishValid
+                ? `Adds ${amountValue} on this combatant's turn every ${everyValue} round${everyValue === 1 ? '' : 's'}, up to the max.`
+                : 'Leave the interval empty to never replenish.'}
+            </p>
           </div>
 
           <button

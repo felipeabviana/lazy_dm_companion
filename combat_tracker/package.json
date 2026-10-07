@@ -1,5 +1,5 @@
 {
-  "name": "dm-tabletop-companion",
+  "name": "combat-tracker",
   "version": "1.0.0",
   "description": "System-agnostic tabletop RPG combat & initiative tracker desktop app",
   "main": "dist-electron/main.js",
@@ -44,8 +44,8 @@
     "vite-plugin-electron-renderer": "^0.14.6"
   },
   "build": {
-    "appId": "com.tabletop.dmcompanion",
-    "productName": "DM Tabletop Companion",
+    "appId": "com.companion.combattracker",
+    "productName": "Combat Tracker",
     "afterPack": "scripts/patch-icon.cjs",
     "directories": {
       "output": "release"

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, cpSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +31,53 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 const unpackedIcon = path.join(process.env.APP_ROOT, 'build', 'icon.ico');
 const windowIcon = !app.isPackaged && existsSync(unpackedIcon) ? unpackedIcon : undefined;
 
+// ─── One-time userData migration ──────────────────────────────────────────────
+//
+// The package was renamed from "dm-tabletop-companion" to "combat-tracker", and
+// Electron derives the userData directory from that name. Left alone, every
+// saved encounter, preset and theme preference would be stranded in the old
+// folder. Move the profile across on first run instead.
+//
+// The interesting part is localStorage, which Chromium stores as a LevelDB
+// directory ("Local Storage"); the rest are disposable caches.
+
+const LEGACY_USER_DATA = path.join(app.getPath('appData'), 'dm-tabletop-companion');
+
+function migrateLegacyUserData(): void {
+  const target = app.getPath('userData');
+  // Nothing to do if the name never changed, or the old profile is gone
+  if (target === LEGACY_USER_DATA) return;
+  if (!existsSync(LEGACY_USER_DATA)) return;
+  // A non-empty target means this already ran (or the user has a fresh profile);
+  // overwriting real data here would be destructive
+  try {
+    if (existsSync(target) && readdirSync(target).length > 0) return;
+
+    if (!existsSync(target)) {
+      // No target yet: move the whole profile, which is instant and exact
+      mkdirSync(path.dirname(target), { recursive: true });
+      renameSync(LEGACY_USER_DATA, target);
+      console.log(`Migrated user data: ${LEGACY_USER_DATA} -> ${target}`);
+      return;
+    }
+
+    // Target exists but is empty: copy only what holds user data
+    for (const entry of readdirSync(LEGACY_USER_DATA)) {
+      // Caches are rebuilt on demand and would only waste space
+      if (['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache', 'Network'].includes(entry)) {
+        continue;
+      }
+      cpSync(path.join(LEGACY_USER_DATA, entry), path.join(target, entry), { recursive: true });
+    }
+    console.log(`Copied user data: ${LEGACY_USER_DATA} -> ${target}`);
+  } catch (err) {
+    // Never block startup on a migration problem; the app just starts empty
+    console.error('userData migration failed:', err);
+  }
+}
+
+migrateLegacyUserData();
+
 let win: BrowserWindow | null = null;
 const viewWindows: Set<BrowserWindow> = new Set();
 
@@ -41,7 +88,7 @@ function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.js');
 
   win = new BrowserWindow({
-    title: 'DM Tabletop Companion',
+    title: 'Combat Tracker',
     width: 1200,
     height: 850,
     minWidth: 860,
@@ -70,7 +117,7 @@ ipcMain.handle('window:createViewOnly', async () => {
   const preloadPath = path.join(__dirname, 'preload.js');
 
   const viewWin = new BrowserWindow({
-    title: 'Tracker – View Only',
+    title: 'Combat Tracker – Player View',
     width: 420,
     height: 800,
     minWidth: 300,
@@ -85,6 +132,10 @@ ipcMain.handle('window:createViewOnly', async () => {
     },
     autoHideMenuBar: true,
   });
+
+  // The player window is a read-only display: drop the menu entirely so no
+  // File/Edit bar can appear (autoHideMenuBar alone still reveals it on Alt).
+  viewWin.setMenu(null);
 
   viewWindows.add(viewWin);
   viewWin.on('closed', () => viewWindows.delete(viewWin));

@@ -180,7 +180,7 @@ export const ViewOnlyTracker: React.FC = () => {
 
       {/* Footer */}
       <footer className="shrink-0 px-4 py-2 border-t border-zinc-800 bg-zinc-900/80 text-center">
-        <span className="text-[10px] text-zinc-600 uppercase tracking-widest">View Only</span>
+        <span className="text-[10px] text-zinc-600 uppercase tracking-widest">Player View</span>
       </footer>
     </div>
   );

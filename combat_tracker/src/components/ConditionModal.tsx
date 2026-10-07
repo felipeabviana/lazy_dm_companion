@@ -22,9 +22,43 @@ export const ConditionModal: React.FC = () => {
 
   const [customName, setCustomName] = useState('');
   const [durationRounds, setDurationRounds] = useState<number | undefined>(undefined);
+  // True while the custom numeric input is focused, so preset buttons can't
+  // clobber the field as the user types
+  const [customDurationFocused, setCustomDurationFocused] = useState(false);
+  const [customDuration, setCustomDuration] = useState('');
   const selectedColor = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
 
   if (activeModal !== 'add_condition' || !modalTarget) return null;
+
+  const PRESETS: { label: string; val: number | undefined }[] = [
+    { label: 'Indefinite', val: undefined },
+    { label: '1 Round', val: 1 },
+    { label: '2 Rounds', val: 2 },
+    { label: '3 Rounds', val: 3 },
+    { label: '5 Rounds', val: 5 },
+  ];
+
+  const applyPreset = (val: number | undefined) => {
+    setDurationRounds(val);
+    setCustomDuration('');
+    setCustomDurationFocused(false);
+  };
+
+  const handleCustomDurationChange = (raw: string) => {
+    setCustomDuration(raw);
+    const trimmed = raw.trim();
+    if (trimmed === '') {
+      // Empty custom field means no countdown
+      setDurationRounds(undefined);
+      return;
+    }
+    const parsed = parseInt(trimmed, 10);
+    setDurationRounds(!isNaN(parsed) && parsed >= 1 ? parsed : undefined);
+  };
+
+  const customDurationValue = customDurationFocused ? customDuration : '';
+  const customDurationActive =
+    durationRounds !== undefined && !PRESETS.some((p) => p.val === durationRounds);
 
   const handleApplyPreset = (preset: { name: string; color: string }) => {
     addCondition(modalTarget.id, {
@@ -76,17 +110,11 @@ export const ConditionModal: React.FC = () => {
               <span>Round Duration (Optional Countdown)</span>
             </label>
             <div className="flex items-center gap-1.5">
-              {[
-                { label: 'Indefinite', val: undefined },
-                { label: '1 Round', val: 1 },
-                { label: '2 Rounds', val: 2 },
-                { label: '3 Rounds', val: 3 },
-                { label: '5 Rounds', val: 5 },
-              ].map((opt) => (
+              {PRESETS.map((opt) => (
                 <button
                   key={opt.label}
                   type="button"
-                  onClick={() => setDurationRounds(opt.val)}
+                  onClick={() => applyPreset(opt.val)}
                   className={`flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
                     durationRounds === opt.val
                       ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
@@ -96,6 +124,41 @@ export const ConditionModal: React.FC = () => {
                   {opt.label}
                 </button>
               ))}
+            </div>
+
+            {/* Custom duration — any round count the presets don't cover */}
+            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={customDurationValue}
+                placeholder="Custom rounds"
+                onFocus={() => {
+                  setCustomDurationFocused(true);
+                  setCustomDuration(durationRounds !== undefined ? String(durationRounds) : '');
+                }}
+                onBlur={() => {
+                  setCustomDurationFocused(false);
+                  // Normalise: if the field was left showing a preset value or
+                  // blank, keep durationRounds as-is rather than resetting it
+                  const trimmed = customDuration.trim();
+                  if (trimmed === '') return;
+                  const parsed = parseInt(trimmed, 10);
+                  if (!isNaN(parsed) && parsed >= 1) setDurationRounds(parsed);
+                }}
+                onChange={(e) => handleCustomDurationChange(e.target.value)}
+                className={`w-28 px-3 py-1.5 rounded-xl border text-xs font-bold text-center transition-colors ${
+                  customDurationActive
+                    ? 'border-amber-500 bg-amber-500/5 text-amber-700 dark:text-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-500'
+                    : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-amber-500'
+                }`}
+              />
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                {customDurationActive
+                  ? `Counts down over ${durationRounds} round${durationRounds === 1 ? '' : 's'}`
+                  : 'Or type any round count'}
+              </span>
             </div>
           </div>
 

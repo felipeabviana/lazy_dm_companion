@@ -10,6 +10,7 @@ import {
   Trash2,
   Skull,
   User,
+  RotateCcw,
 } from 'lucide-react';
 
 interface CombatantCardProps {
@@ -405,6 +406,16 @@ export const CombatantCard: React.FC<CombatantCardProps> = ({ combatant, isActiv
                     <span className="text-[10px] text-zinc-400 font-normal">/{counter.max}</span>
                   )}
                 </span>
+                {/* Replenishment schedule, so the DM can see what's coming */}
+                {counter.replenishEveryRounds !== undefined && counter.replenishEveryRounds >= 1 && (
+                  <span
+                    className="text-[10px] font-normal text-zinc-400 dark:text-zinc-500 flex items-center gap-0.5"
+                    title={`Replenishes ${counter.replenishAmount ?? 1} on this combatant's turn every ${counter.replenishEveryRounds} round${counter.replenishEveryRounds === 1 ? '' : 's'}`}
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                    +{counter.replenishAmount ?? 1}/{counter.replenishEveryRounds}r
+                  </span>
+                )}
 
                 {/* Counter Steppers */}
                 <div className="flex items-center gap-0.5 ml-1">
