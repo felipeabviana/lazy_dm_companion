@@ -36,7 +36,10 @@ npm install
 npm run dev         # Vite dev server + Electron
 npm run build       # typecheck + production bundle
 npm run dist:win    # build + package Windows installer and portable .exe
+npm run dist:mac    # build + package macOS .dmg (arm64 and x64), run on a Mac
 ```
+
+The macOS build is unsigned. Your own local build opens normally, but a `.dmg` downloaded from elsewhere is blocked by Gatekeeper: run `xattr -cr "/Applications/<App Name>.app"` once, or allow it under System Settings > Privacy & Security.
 
 ## License
 
